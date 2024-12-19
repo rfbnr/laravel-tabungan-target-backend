@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Savings;
-use Illuminate\Container\Attributes\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
 
 class SavingController extends Controller
 {
@@ -44,7 +44,11 @@ class SavingController extends Controller
                 ], 400);
             }
 
-            $savings = Savings::where('status', $status)->get();
+            $user = Auth::user();
+
+            $savings = Savings::where('status', $status)
+                ->where('user_id', $user->id)
+                ->get();
 
             return response()->json([
                 'status' => 'success',
@@ -95,8 +99,31 @@ class SavingController extends Controller
 
             $filename = null;
             if ($request->hasFile('image')) {
-                $filename = time() . '.' . $request->image->extension();
-                $request->file('image')->storeAs('public/savings', $filename);
+                if (!$request->file('image')->isValid()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Invalid file upload',
+                    ], 400);
+                }
+
+                $user = $request->user();
+                $firstName = explode(' ', $user->name)[0];
+
+                $filename = strtolower($firstName) . '-' . time() . '.' . $request->image->extension();
+
+                $path = $request->file('image')->storeAs('savings', $filename);
+
+                if (!$path) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Failed to save file',
+                    ], 500);
+                }
+            } else {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No file uploaded',
+                ], 400);
             }
 
             $saving = Savings::create([
@@ -187,12 +214,22 @@ class SavingController extends Controller
                 ], 422);
             }
 
+            $user = Auth::user();
+
             $saving = Savings::find($id);
+
             if (!$saving) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Saving not found',
                 ], 404);
+            }
+
+            if ($saving->user_id !== $user->id) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You are not authorized to update this saving',
+                ], 403);
             }
 
             $saving->current_savings += $request->amount;
